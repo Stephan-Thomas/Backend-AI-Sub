@@ -1,0 +1,16 @@
+// src/middleware/auth.ts
+import { Request, Response, NextFunction } from "express";
+import { verifyJwt } from "../utils/jwt";
+
+export function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  const token = auth.slice("Bearer ".length);
+  const payload = verifyJwt(token);
+  if (!payload) return res.status(401).json({ error: "Invalid token" });
+  // attach minimal user info
+  req.user = { id: (payload as any).id, email: (payload as any).email };
+  next();
+}

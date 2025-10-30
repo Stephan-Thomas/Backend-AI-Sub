@@ -1,0 +1,47 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  name          String?
+  passwordHash  String?
+  googleId      String?        @unique
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  googleTokens  GoogleToken?
+  subscriptions Subscription[]
+}
+
+model GoogleToken {
+  id           String    @id @default(uuid())
+  userId       String    @unique
+  accessToken  String
+  refreshToken String
+  scope        String?
+  expiryDate   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Subscription {
+  id          String    @id @default(uuid())
+  userId      String
+  provider    String
+  product     String?
+  amount      Float?
+  currency    String?
+  startDate   DateTime?
+  nextBilling DateTime?
+  rawData     Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
