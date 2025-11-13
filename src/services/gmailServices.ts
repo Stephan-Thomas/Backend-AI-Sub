@@ -3,6 +3,7 @@ import { google } from "googleapis";
 import { prisma } from "../prisma";
 import { decrypt, encrypt } from "../utils/crypto";
 import { parseSubscriptionsFromEmails } from "./subscriptionService";
+import subs from "../data/subs.json";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
@@ -25,12 +26,24 @@ export async function scanUserGmailForSubscriptions(userId: string) {
 
   const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
-  // 1) list messages — we'll search for common subscription keywords and known senders
-  // Note: Gmail API allows `q` parameter similar to search box (helps narrow down).
+  // 🔥 Calculate date range: from January 1st of last year to now
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const lastYear = currentYear - 1;
+  const startDate = new Date(lastYear, 0, 1); // January 1st of last year
+
+  // Format dates for Gmail search (YYYY/MM/DD)
+  const afterDate = `${startDate.getFullYear()}/${String(
+    startDate.getMonth() + 1
+  ).padStart(2, "0")}/${String(startDate.getDate()).padStart(2, "0")}`;
+
+  console.log(`📅 Searching emails from ${afterDate} to now`);
+
+  // 1) list messages with date filter
   const searchQueries = [
-    'subject:(subscription OR receipt OR invoice OR "payment" OR "renewal")',
-    'from:billing OR from:receipt OR from:invoice OR "donotreply" OR "no-reply"',
-    'subject:(welcome OR "your subscription")',
+    `after:${afterDate} subject:(subscription OR receipt OR invoice OR "payment" OR "renewal")`,
+    `after:${afterDate} from:billing OR from:receipt OR from:invoice OR "donotreply" OR "no-reply"`,
+    `after:${afterDate} subject:(welcome OR "your subscription")`,
   ];
 
   const collectedEmails: { id: string; snippet?: string }[] = [];
@@ -57,6 +70,8 @@ export async function scanUserGmailForSubscriptions(userId: string) {
     500
   ); // limit
 
+  console.log(`📧 Found ${uniqueIds.length} unique emails to analyze`);
+
   // Fetch message details in batches
   const detailed: { id: string; snippet?: string; payload?: any }[] = [];
   for (const id of uniqueIds) {
@@ -79,25 +94,66 @@ export async function scanUserGmailForSubscriptions(userId: string) {
   // 2) Parse subscriptions from messages
   const parsed = parseSubscriptionsFromEmails(detailed);
 
+  console.log(`✅ Parsed ${parsed.length} subscriptions`);
+
   // 3) Upsert subscriptions into DB for user
   const saved: any[] = [];
   for (const p of parsed) {
-    // crude matching: provider + product + user
+    // 🔥 Look up the tag from subs.json based on provider name
+    const providerInfo = subs.find(
+      (s) => s.name.toLowerCase() === p.provider.toLowerCase()
+    );
+    const tag = providerInfo?.tag || "other";
+
+    console.log(`💾 Saving ${p.provider} with tag: ${tag}`);
+
+    // Better matching: find by provider (and optionally product if it exists)
+    const whereClause: any = {
+      userId,
+      provider: p.provider,
+    };
+
+    // Only match on product if it exists and isn't "unknown"
+    if (p.product && p.product !== "unknown") {
+      whereClause.product = p.product;
+    }
+
     const existing = await prisma.subscription.findFirst({
-      where: { userId, provider: p.provider, product: p.product },
+      where: whereClause,
     });
+
     if (existing) {
-      const updated = await prisma.subscription.update({
-        where: { id: existing.id },
-        data: {
-          amount: p.amount ?? existing.amount,
-          currency: p.currency ?? existing.currency,
-          startDate: p.startDate ?? existing.startDate,
-          nextBilling: p.nextBilling ?? existing.nextBilling,
-          rawData: p.rawData ?? existing.rawData,
-        },
-      });
-      saved.push(updated);
+      // Update existing subscription only if new data is better
+      const shouldUpdate =
+        (p.amount && !existing.amount) || // New has amount, old doesn't
+        (p.amount &&
+          existing.amount &&
+          p.startDate &&
+          existing.startDate &&
+          p.startDate > existing.startDate) || // Newer date
+        (!existing.product && p.product); // Old missing product, new has it
+
+      if (shouldUpdate) {
+        const updated = await prisma.subscription.update({
+          where: { id: existing.id },
+          data: {
+            amount: p.amount ?? existing.amount,
+            currency: p.currency ?? existing.currency,
+            product: p.product ?? existing.product,
+            startDate: p.startDate ?? existing.startDate,
+            nextBilling: p.nextBilling ?? existing.nextBilling,
+            tag: tag, // 🔥 Update tag from subs.json
+            rawData: p.rawData ?? existing.rawData,
+          },
+        });
+        saved.push(updated);
+        console.log(`✏️  Updated existing subscription for ${p.provider}`);
+      } else {
+        saved.push(existing);
+        console.log(
+          `⏭️  Skipped updating ${p.provider} - existing data is better`
+        );
+      }
     } else {
       const created = await prisma.subscription.create({
         data: {
@@ -108,12 +164,16 @@ export async function scanUserGmailForSubscriptions(userId: string) {
           currency: p.currency,
           startDate: p.startDate,
           nextBilling: p.nextBilling,
+          tag: tag, // 🔥 Add tag from subs.json
           rawData: p.rawData,
         },
       });
       saved.push(created);
+      console.log(`✨ Created new subscription for ${p.provider} (${tag})`);
     }
   }
+
+  console.log(`💾 Saved ${saved.length} subscriptions to database`);
 
   return saved;
 }

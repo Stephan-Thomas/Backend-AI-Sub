@@ -36,6 +36,7 @@ model Subscription {
   userId      String
   provider    String
   product     String?
+  tag         String
   amount      Float?
   currency    String?
   startDate   DateTime?
