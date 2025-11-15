@@ -105,56 +105,37 @@ export async function scanUserGmailForSubscriptions(userId: string) {
     );
     const tag = providerInfo?.tag || "other";
 
-    console.log(`💾 Saving ${p.provider} with tag: ${tag}`);
+    console.log(`💾 Processing ${p.provider} (${p.currency} ${p.amount})...`);
 
-    // Better matching: find by provider (and optionally product if it exists)
-    const whereClause: any = {
-      userId,
-      provider: p.provider,
-    };
-
-    // Only match on product if it exists and isn't "unknown"
-    if (p.product && p.product !== "unknown") {
-      whereClause.product = p.product;
-    }
-
+    // 🔥 MATCH BY PROVIDER NAME ONLY (ignore product variations)
+    // This prevents duplicates like "Canva Pro" vs "Canva Premium" vs "Canva"
     const existing = await prisma.subscription.findFirst({
-      where: whereClause,
+      where: {
+        userId,
+        provider: p.provider,
+      },
     });
 
     if (existing) {
-      // Update existing subscription only if new data is better
-      const shouldUpdate =
-        (p.amount && !existing.amount) || // New has amount, old doesn't
-        (p.amount &&
-          existing.amount &&
-          p.startDate &&
-          existing.startDate &&
-          p.startDate > existing.startDate) || // Newer date
-        (!existing.product && p.product); // Old missing product, new has it
-
-      if (shouldUpdate) {
-        const updated = await prisma.subscription.update({
-          where: { id: existing.id },
-          data: {
-            amount: p.amount ?? existing.amount,
-            currency: p.currency ?? existing.currency,
-            product: p.product ?? existing.product,
-            startDate: p.startDate ?? existing.startDate,
-            nextBilling: p.nextBilling ?? existing.nextBilling,
-            tag: tag, // 🔥 Update tag from subs.json
-            rawData: p.rawData ?? existing.rawData,
-          },
-        });
-        saved.push(updated);
-        console.log(`✏️  Updated existing subscription for ${p.provider}`);
-      } else {
-        saved.push(existing);
-        console.log(
-          `⏭️  Skipped updating ${p.provider} - existing data is better`
-        );
-      }
+      // 🔥 ALWAYS UPDATE - replace old data with new data
+      const updated = await prisma.subscription.update({
+        where: { id: existing.id },
+        data: {
+          amount: p.amount,
+          currency: p.currency,
+          product: p.product || existing.product,
+          startDate: p.startDate,
+          nextBilling: p.nextBilling,
+          tag: tag,
+          rawData: p.rawData,
+        },
+      });
+      saved.push(updated);
+      console.log(
+        `✏️  Updated ${p.provider}: ${existing.amount} → ${p.amount} (newer data)`
+      );
     } else {
+      // Create new subscription
       const created = await prisma.subscription.create({
         data: {
           userId,
@@ -164,12 +145,12 @@ export async function scanUserGmailForSubscriptions(userId: string) {
           currency: p.currency,
           startDate: p.startDate,
           nextBilling: p.nextBilling,
-          tag: tag, // 🔥 Add tag from subs.json
+          tag: tag,
           rawData: p.rawData,
         },
       });
       saved.push(created);
-      console.log(`✨ Created new subscription for ${p.provider} (${tag})`);
+      console.log(`✨ Created new subscription: ${p.provider} (${tag})`);
     }
   }
 

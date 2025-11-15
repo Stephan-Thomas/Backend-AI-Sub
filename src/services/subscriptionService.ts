@@ -111,22 +111,44 @@ function extractAmount(text: string): {
   amount?: number;
   currency?: string;
 } {
-  const moneyRegex =
-    /(?:USD|\$|EUR|€|NGN|₦|GBP|£)?\s?([0-9]+(?:[.,][0-9]{1,2})?)\s?(?:USD|EUR|NGN|₦|GBP|£)?/i;
-  const m = text.match(moneyRegex);
-  if (!m) return {};
-  const raw = m[1].replace(",", ".");
-  const num = parseFloat(raw);
-  const currency = text.includes("₦")
-    ? "NGN"
-    : text.includes("$")
-    ? "USD"
-    : text.includes("€")
-    ? "EUR"
-    : text.includes("£")
-    ? "GBP"
-    : "USD";
-  return { amount: num, currency };
+  // 🔥 NEW: Only match amounts that have currency symbols directly attached
+  // Matches: $6,600 | ₦57,000 | €30.99 | £15.00 | NGN 6,600 | USD 30
+  const patterns = [
+    /(\$|USD)\s?([0-9]{1,3}(?:,?[0-9]{3})*(?:\.[0-9]{2})?)/i, // $6,600 or USD 6600
+    /(₦|NGN)\s?([0-9]{1,3}(?:,?[0-9]{3})*(?:\.[0-9]{2})?)/i, // ₦57,000 or NGN 57000
+    /(€|EUR)\s?([0-9]{1,3}(?:,?[0-9]{3})*(?:\.[0-9]{2})?)/i, // €30.99 or EUR 30
+    /(£|GBP)\s?([0-9]{1,3}(?:,?[0-9]{3})*(?:\.[0-9]{2})?)/i, // £15.00 or GBP 15
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const currencySymbol = match[1];
+      const amountStr = match[2];
+
+      // Remove commas (they're thousands separators, not decimals)
+      const cleanAmount = amountStr.replace(/,/g, "");
+      const num = parseFloat(cleanAmount);
+
+      // Determine currency
+      const currency =
+        currencySymbol.includes("₦") || currencySymbol.includes("NGN")
+          ? "NGN"
+          : currencySymbol.includes("$") || currencySymbol.includes("USD")
+          ? "USD"
+          : currencySymbol.includes("€") || currencySymbol.includes("EUR")
+          ? "EUR"
+          : currencySymbol.includes("£") || currencySymbol.includes("GBP")
+          ? "GBP"
+          : "USD";
+
+      console.log(`💰 Extracted amount: ${currency} ${num} from "${match[0]}"`);
+      return { amount: num, currency };
+    }
+  }
+
+  console.log(`⚠️  No valid currency amount found in text`);
+  return {};
 }
 
 export function parseSubscriptionsFromEmails(msgs: EmailMsg[]): ParsedSub[] {
@@ -165,6 +187,16 @@ export function parseSubscriptionsFromEmails(msgs: EmailMsg[]): ParsedSub[] {
     console.log(`✅ Found potential subscription: ${providerInfo.name}`);
 
     const { amount, currency } = extractAmount(fullText);
+
+    // 🔥 SKIP if no amount found - can't be a subscription without an amount!
+    if (!amount || amount <= 0) {
+      console.log(
+        `⏭️  Skipping ${providerInfo.name} - no valid amount found (subscriptions must have an amount)`
+      );
+      continue;
+    }
+
+    console.log(`💰 ${providerInfo.name}: Found amount ${currency} ${amount}`);
 
     // Get headers for subject and date
     const headers = m.payload?.headers || [];
@@ -260,22 +292,37 @@ export function parseSubscriptionsFromEmails(msgs: EmailMsg[]): ParsedSub[] {
 function calculateSubscriptionScore(sub: ParsedSub): number {
   let score = 0;
 
-  // +10 points if it has an amount
-  if (sub.amount && sub.amount > 0) score += 10;
+  // 🔥 PRIORITIZE REASONABLE AMOUNTS
+  if (sub.amount && sub.amount > 0) {
+    // Base points for having an amount
+    score += 20;
+
+    // Bonus points for reasonable subscription amounts ($5 - $10,000)
+    // Penalize tiny amounts (like $1, $4) and huge amounts (like $100,000)
+    if (sub.amount >= 5 && sub.amount <= 10000) {
+      score += 30; // Big bonus for reasonable amount
+    } else if (sub.amount < 5) {
+      score -= 10; // Penalty for suspiciously small amounts
+    }
+  } else {
+    // Heavy penalty for no amount
+    score -= 20;
+  }
 
   // +5 points if it has a product name
   if (sub.product && sub.product !== "unknown") score += 5;
 
-  // +3 points if it has a currency
-  if (sub.currency) score += 3;
+  // +5 points if it has a currency
+  if (sub.currency) score += 5;
 
-  // +1 point for more recent date (prefer newer subscriptions)
+  // Slight recency bonus (max 10 points instead of 30)
+  // This way recency doesn't overpower the amount check
   if (sub.startDate) {
     const daysSinceStart = Math.floor(
       (Date.now() - sub.startDate.getTime()) / (1000 * 60 * 60 * 24)
     );
-    // More recent = higher score (max 30 days = 30 points)
-    score += Math.max(0, 30 - daysSinceStart);
+    // More recent = slightly higher score (max 10 points)
+    score += Math.max(0, 10 - Math.floor(daysSinceStart / 3));
   }
 
   return score;
