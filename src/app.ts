@@ -25,6 +25,7 @@ app.use("/api/gmail", gmailRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/telegram", telegramRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
+app.use("/subscriptions", subscriptionRoutes);
 
 app.get("/", (req, res) =>
   res.json({ ok: true, message: "Server is running" })

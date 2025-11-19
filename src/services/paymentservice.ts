@@ -212,7 +212,7 @@ export class PaymentService {
           },
         ],
         mode: "payment",
-        success_url: `${process.env.FRONTEND_URL}/payment/success?reference=${reference}`,
+        success_url: `${process.env.FRONTEND_URL}/payment/success?reference=${reference}&session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.FRONTEND_URL}/payment/cancel?reference=${reference}`,
         customer_email: email,
 
@@ -479,6 +479,17 @@ export class PaymentService {
           `   client_reference_id: ${session.client_reference_id || "NULL"}`
         );
         console.log(`   Metadata:`, JSON.stringify(session.metadata, null, 2));
+
+        // Check if this looks like a test webhook with empty metadata
+        if (
+          !session.client_reference_id &&
+          (!session.metadata || Object.keys(session.metadata).length === 0)
+        ) {
+          console.log(
+            `   ⚠️  Webhook appears to be from a test payment or external source (empty metadata). Skipping processing.`
+          );
+          return;
+        }
 
         // Try to find payment using multiple strategies
         let payment = null;

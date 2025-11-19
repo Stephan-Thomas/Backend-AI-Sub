@@ -23,6 +23,11 @@ router.get(
   paymentController.verifyStripePayment.bind(paymentController)
 );
 router.get(
+  "/verify/stripe/reference/:reference",
+  requireAuth,
+  paymentController.verifyStripePaymentByReference.bind(paymentController)
+);
+router.get(
   "/status",
   requireAuth,
   paymentController.getPaymentStatus.bind(paymentController)

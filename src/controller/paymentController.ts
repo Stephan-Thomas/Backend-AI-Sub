@@ -155,6 +155,66 @@ export class PaymentController {
   }
 
   /**
+   * Verify Stripe payment by reference
+   * GET /api/payments/verify/stripe/reference/:reference
+   */
+  async verifyStripePaymentByReference(
+    req: Request,
+    res: Response
+  ): Promise<void> {
+    try {
+      const { reference } = req.params;
+
+      if (!reference) {
+        res.status(400).json({
+          success: false,
+          message: "Payment reference is required",
+        });
+        return;
+      }
+
+      // Find the payment record to get the session ID
+      const payment = await prisma.payment.findUnique({
+        where: { reference },
+      });
+
+      if (!payment) {
+        res.status(404).json({
+          success: false,
+          message: "Payment record not found",
+        });
+        return;
+      }
+
+      // For Stripe payments, we need to retrieve the session
+      // But since we don't store sessionId, we can verify by checking payment status
+      // Or retrieve from Stripe using the reference as client_reference_id
+      const sessions = await stripe.checkout.sessions.list({
+        client_reference_id: reference,
+        limit: 1,
+      });
+
+      if (sessions.data.length === 0) {
+        res.status(404).json({
+          success: false,
+          message: "Stripe session not found",
+        });
+        return;
+      }
+
+      const session = sessions.data[0];
+      const result = await paymentService.verifyStripePayment(session.id);
+      res.status(200).json(result);
+    } catch (error: any) {
+      console.error("Verify Stripe payment by reference error:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Failed to verify payment",
+      });
+    }
+  }
+
+  /**
    * Paystack webhook handler
    * POST /api/webhooks/paystack
    */
