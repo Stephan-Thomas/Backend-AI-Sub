@@ -190,9 +190,12 @@ export class PaymentController {
       // But since we don't store sessionId, we can verify by checking payment status
       // Or retrieve from Stripe using the reference as client_reference_id
       const sessions = await stripe.checkout.sessions.list({
-        client_reference_id: reference,
-        limit: 1,
+        limit: 100,
       });
+
+      const match = sessions.data.find(
+        (s) => s.client_reference_id === reference
+      );
 
       if (sessions.data.length === 0) {
         res.status(404).json({
