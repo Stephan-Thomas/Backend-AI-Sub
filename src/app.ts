@@ -7,8 +7,18 @@ import subscriptionRoutes from "./routes/subscription";
 import paymentRoutes from "./routes/payments";
 import webhookRoutes from "./routes/webhooks";
 import telegramRoutes from "./routes/telegram";
+import cors from "cors";
 
 const app = express();
+
+//cors stuff
+app.use(
+  cors({
+    origin: "http://localhost:3000", // or "http://localhost:3000" for production tighten-up or "*" for all origins (not recommended)
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+  })
+);
 
 // ❌ REMOVE express.raw() from here
 // ❌ Do NOT wrap the webhook router with raw
