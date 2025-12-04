@@ -29,7 +29,7 @@ export async function signup(req: Request, res: Response) {
   if (!email || !password)
     return res.status(400).json({ error: "Missing email/password" });
   const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) return res.status(400).json({ error: "User exists" });
+  if (existing) return res.status(400).json({ error: "User already exists" });
   const hash = await bcrypt.hash(password, 10);
   const user = await prisma.user.create({
     data: { email, passwordHash: hash, name },
@@ -126,7 +126,15 @@ export async function googleCallback(req: Request, res: Response) {
 
   // Issue our JWT for frontend
   const jwt = signJwt({ id: user.id, email: user.email });
-  // Option A: redirect back to frontend with token
+  // Set secure, HTTP-only cookie
+  res.cookie("authToken", jwt, {
+    httpOnly: true, // Can't be accessed via JavaScript
+    secure: process.env.NODE_ENV === "production", // HTTPS only in production
+    sameSite: "lax", // CSRF protection
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+  });
+
+  // Redirect without token in URL
   const frontend = process.env.FRONTEND_REDIRECT_URI || "http://localhost:3000";
-  return res.redirect(`${frontend}/oauth-success?token=${jwt}`);
+  return res.redirect(`${frontend}/oauth-success`);
 }
