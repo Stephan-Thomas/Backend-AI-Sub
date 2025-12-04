@@ -11,36 +11,52 @@ import cors from "cors";
 
 const app = express();
 
-//cors stuff
+// CORS with credentials
 app.use(
   cors({
-    origin: "http://localhost:3000", // or "http://localhost:3000" for production tighten-up or "*" for all origins (not recommended)
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-// ❌ REMOVE express.raw() from here
-// ❌ Do NOT wrap the webhook router with raw
+// Webhooks FIRST (before JSON parser)
 app.use("/api/webhooks", webhookRoutes);
 
-// Now normal JSON parser for all other routes
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// JSON parser for everything else
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser());
 
-// Register all other routes
+// Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/gmail", gmailRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/telegram", telegramRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
-app.use("/subscriptions", subscriptionRoutes);
 
+// Health check
 app.get("/", (req, res) =>
   res.json({ ok: true, message: "Server is running" })
 );
 
-// ... 404 + error handler
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
+// Global error handler
+app.use(
+  (
+    err: any,
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+);
 
 export default app;

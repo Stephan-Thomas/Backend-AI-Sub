@@ -5,17 +5,20 @@ import {
   login,
   googleCallback,
   googleSignInUrl,
+  getMe,
+  logout,
 } from "../controller/authController";
+import { requireAuth } from "../middleware/auth";
+
 const router = Router();
 
 router.post("/signup", signup);
 router.post("/login", login);
-
-// return URL the frontend should open to start Google OAuth sign-in
 router.get("/google/url", googleSignInUrl);
-
-// Callback endpoint that Google will redirect to with `code`.
-// You may choose to do code exchange on server and create user + issue JWT
 router.get("/google/callback", googleCallback);
+
+// Protected routes
+router.get("/me", requireAuth, getMe);
+router.post("/logout", requireAuth, logout);
 
 export default router;
