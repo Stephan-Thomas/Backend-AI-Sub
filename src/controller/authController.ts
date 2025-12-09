@@ -215,7 +215,7 @@ export async function googleCallback(req: Request, res: Response) {
     // Redirect to frontend success page
     const frontend =
       process.env.FRONTEND_REDIRECT_URI || "http://localhost:3000";
-    return res.redirect(`${frontend}/oauth-success`);
+    return res.redirect(`${frontend}/dashboard`);
   } catch (error) {
     console.error("Google callback error:", error);
     const frontend =
